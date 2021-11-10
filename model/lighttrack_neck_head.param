@@ -1,0 +1,50 @@
+7767517
+48 50
+Input                    input1                   0 1 input1
+Input                    input2                   0 1 input2
+BatchNorm                428                      1 1 input1 428 0=96
+BatchNorm                429                      1 1 input2 429 0=96
+Reshape                  447                      1 1 428 447 0=64 1=96
+Permute                  448                      1 1 447 448 0=1
+Reshape                  454                      1 1 429 454 0=324 1=96
+Gemm                     455                      2 1 448 454 455
+Reshape                  462                      1 1 455 462 0=18 1=18 2=64
+Split                    splitncnn_3              1 2 462 462_splitncnn_0 462_splitncnn_1
+Pooling                  463                      1 1 462_splitncnn_1 463 0=1 4=1
+InnerProduct             464                      1 1 463 465 0=64 1=1 2=4096 9=1
+InnerProduct             466                      1 1 465 467 0=64 1=1 2=4096 9=4
+BinaryOp                 468                      2 1 462_splitncnn_0 467 468 0=2
+Convolution              469                      1 1 468 469 0=128 1=1 5=1 6=8192
+Split                    splitncnn_4              1 2 469 469_splitncnn_0 469_splitncnn_1
+ConvolutionDepthWise     470                      1 1 469_splitncnn_1 470 0=128 1=5 4=2 6=3200 7=128
+Convolution              471                      1 1 470 473 0=256 1=1 5=1 6=32768 9=1
+ConvolutionDepthWise     474                      1 1 473 474 0=256 1=5 4=2 6=6400 7=256
+Convolution              475                      1 1 474 477 0=256 1=1 5=1 6=65536 9=1
+ConvolutionDepthWise     478                      1 1 477 478 0=256 1=3 4=1 6=2304 7=256
+Convolution              479                      1 1 478 481 0=256 1=1 5=1 6=65536 9=1
+ConvolutionDepthWise     482                      1 1 481 482 0=256 1=3 4=1 6=2304 7=256
+Convolution              483                      1 1 482 485 0=256 1=1 5=1 6=65536 9=1
+ConvolutionDepthWise     486                      1 1 485 486 0=256 1=3 4=1 6=2304 7=256
+Convolution              487                      1 1 486 489 0=256 1=1 5=1 6=65536 9=1
+ConvolutionDepthWise     490                      1 1 489 490 0=256 1=3 4=1 6=2304 7=256
+Convolution              491                      1 1 490 493 0=256 1=1 5=1 6=65536 9=1
+Convolution              494                      1 1 493 494 0=1 1=3 4=1 5=1 6=2304
+BinaryOp                 output.1                 1 1 494 output.1 0=2 1=1 2=1.000000e-01
+ConvolutionDepthWise     497                      1 1 469_splitncnn_0 497 0=128 1=3 4=1 6=1152 7=128
+Convolution              498                      1 1 497 500 0=192 1=1 5=1 6=24576 9=1
+ConvolutionDepthWise     501                      1 1 500 501 0=192 1=3 4=1 6=1728 7=192
+Convolution              502                      1 1 501 504 0=192 1=1 5=1 6=36864 9=1
+ConvolutionDepthWise     505                      1 1 504 505 0=192 1=3 4=1 6=1728 7=192
+Convolution              506                      1 1 505 508 0=192 1=1 5=1 6=36864 9=1
+ConvolutionDepthWise     509                      1 1 508 509 0=192 1=3 4=1 6=1728 7=192
+Convolution              510                      1 1 509 512 0=192 1=1 5=1 6=36864 9=1
+ConvolutionDepthWise     513                      1 1 512 513 0=192 1=3 4=1 6=1728 7=192
+Convolution              514                      1 1 513 516 0=192 1=1 5=1 6=36864 9=1
+ConvolutionDepthWise     517                      1 1 516 517 0=192 1=5 4=2 6=4800 7=192
+Convolution              518                      1 1 517 520 0=192 1=1 5=1 6=36864 9=1
+ConvolutionDepthWise     521                      1 1 520 521 0=192 1=5 4=2 6=4800 7=192
+Convolution              522                      1 1 521 524 0=192 1=1 5=1 6=36864 9=1
+ConvolutionDepthWise     525                      1 1 524 525 0=192 1=5 4=2 6=4800 7=192
+Convolution              526                      1 1 525 528 0=192 1=1 5=1 6=36864 9=1
+Convolution              529                      1 1 528 530 0=4 1=3 4=1 5=1 6=6912 9=1
+BinaryOp                 output.2                 1 1 530 output.2 0=2 1=1 2=1.600000e+01
