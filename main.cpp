@@ -1,5 +1,6 @@
 #include <iostream>
 #include <cstdlib>
+#include <string>
 #include "opencv2/opencv.hpp"
 
 #include "LightTrack.h"
@@ -15,6 +16,7 @@ void cxy_wh_2_rect(const cv::Point& pos, cv::Scalar sz, cv::Rect &rect)
 
 void track(LightTrack *siam_tracker, const char *video_path)
 {
+    // Read video.
     cv::VideoCapture capture;
     bool ret;
     if (strlen(video_path)==1)
@@ -22,6 +24,7 @@ void track(LightTrack *siam_tracker, const char *video_path)
     else
         ret = capture.open(video_path);
 
+    // Exit if video not opened.
     if (!ret)
         std::cout << "Open cap failed!" << std::endl;
 
@@ -34,10 +37,15 @@ void track(LightTrack *siam_tracker, const char *video_path)
         std::cout<< "Cannot read video file" << std::endl;
         return;
     }
-    std::cout << "Start track init ..." << std::endl;
-    std::cout << "==========================" << std::endl;
+
+    // Select a rect.
     cv::namedWindow("demo");
     cv::Rect trackWindow = cv::selectROI("demo", frame);
+    
+
+    // Initialize tracker with first frame and rect.
+    std::cout << "Start track init ..." << std::endl;
+    std::cout << "==========================" << std::endl;
     State state;
     cv::Point target_pos;
     target_pos.x = trackWindow.x + trackWindow.width / 2;
@@ -50,23 +58,45 @@ void track(LightTrack *siam_tracker, const char *video_path)
 
     for (;;)
     {
+        // Read a new frame.
         capture >> frame;
         if (frame.empty())
             break;
+
+        // Start timer
+        double t = (double)cv::getTickCount();
+
+        // Update tracker.
         std::cout << "Start track ..." << std::endl;
         std::cout << "==========================" << std::endl;
         siam_tracker->track(state, frame);
         std::cout << "==========================" << std::endl;
         std::cout << "Track done" << std::endl;
         std::cout << std::endl;
-        // result to rect
+
+        // Calculate Frames per second (FPS)
+        double fps = cv::getTickFrequency() / ((double)cv::getTickCount() - t);
+
+        // Result to rect.
         cv::Rect rect;
         cxy_wh_2_rect(state.target_pos, state.target_sz, rect);
-        // draw rect
+
+        // Draw rect.
         cv::rectangle(frame, rect, cv::Scalar(0, 255, 0));
-        // display
+
+        
+        // String fps_text = "FPS: ";
+        // String fps_value = ""+fps;
+        // cv::putText(frame, fps_text + fps_value, cv::Point (100, 50), 1, 2.0, cv::Scalar(50, 170, 50), 2);
+
+        // Display FPS 
+        std::cout << "FPS: " << fps << std::endl;
+
+        // Display result.
         cv::imshow("demo", frame);
         cv::waitKey(33);
+
+        // Exit if 'q' pressed.
         if (cv::waitKey(30) == 'q')
         {
             break;
@@ -85,15 +115,15 @@ int main(int argc, char** argv)
         return -1;
     }
 
-    // get model path
+    // Get model path.
     std::string init_model = "model/lighttrack_init";
     std::string backbone_model = "model/lighttrack_backbone";
     std::string neck_head_model = "model/lighttrack_neck_head";
 
-    // get video path
+    // Get video path.
     const char* video_path = argv[1];
 
-    // build tracker
+    // Build tracker.
     LightTrack *siam_tracker;
     siam_tracker = new LightTrack(init_model, backbone_model, neck_head_model);
     track(siam_tracker, video_path);
