@@ -11,7 +11,7 @@ https://github.com/researchmm/LightTrack
 ## build
 ```
 $ mkdir build && cd build
-$ make -j && make install
+$ cmake .. && make -j && make install
 ```
 
 ## run
