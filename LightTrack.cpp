@@ -2,6 +2,7 @@
 // Created by xiongzhuang on 2021/10/8.
 //
 #include "LightTrack.h"
+#include "timer.h"
 
 void visualize(const char* title, const ncnn::Mat& m)
 {
@@ -380,17 +381,33 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, S
 
 void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scalar &target_sz, std::vector<std::vector<float> > &window, float scale_z, Config *p, float &cls_score_max)
 {
+    time_checker time2, time3, time4, time5;
+
+    time2.start();
+    ncnn::Mat ncnn_img = ncnn::Mat::from_pixels(x_crops.data, ncnn::Mat::PIXEL_BGR2RGB, x_crops.cols, x_crops.rows);
+    ncnn_img.substract_mean_normalize(this->mean_vals, this->norm_vals);
+    time2.stop();
+    time2.show_distance("Update stage ---- input seting cost time");
+
+    time3.start();
     // net backbone
     ncnn::Extractor ex_backbone = net_backbone.create_extractor();
     ex_backbone.set_light_mode(true);
     ex_backbone.set_num_threads(16);
 
-    ncnn::Mat ncnn_img = ncnn::Mat::from_pixels(x_crops.data, ncnn::Mat::PIXEL_BGR2RGB, x_crops.cols, x_crops.rows);
-    ncnn_img.substract_mean_normalize(this->mean_vals, this->norm_vals);
+#if NCNN_VULKAN
+    sd::cout << NCNN_VULKAN << std::endl;
+    ex_backbone.opt.use_vulkan_compute = True;
+#endif
+
+    
     ex_backbone.input("input1", ncnn_img);
 
     ex_backbone.extract("output.1", xf);
+    time3.stop();
+    time3.show_distance("Update stage ---- output xf extracting cost time");
 
+    time4.start();
     // net neck head
     ncnn::Extractor ex_neck_head = net_neck_head.create_extractor();
     ex_neck_head.set_light_mode(true);
@@ -400,7 +417,10 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
     ncnn::Mat cls_score, bbox_pred;
     ex_neck_head.extract("output.1", cls_score);
     ex_neck_head.extract("output.2", bbox_pred);
+    time4.stop();
+    time4.show_distance("Update stage ---- output cls_score and bbox_pred extracting cost time");
 
+    time5.start();
     ncnn::Mat cls_score_sigmoid;
     // manually call sigmoid on the output
     {
@@ -462,6 +482,8 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
     binary_op_scalar(pscore, 1-p->window_influence, pscore_mul, Operation_MUL);
     binary_op(pscore_mul, window_mat_mul, pscore_window, Operation_ADD);
 
+    time5.stop();
+    time5.show_distance("Update stage ---- postprocess cost time");
 
     // get max
     std::vector<int> index(3);
@@ -484,6 +506,8 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
     }
 
     int r_max = index[1]; int c_max = index[2];
+
+    std::cout << "pscore_window max score is: " << pscore_window.channel(index[0]).row(r_max)[c_max];
 
     // to real size
     float pred_x1_real = pred_x1.channel(index[0]).row(r_max)[c_max]; // pred_x1[r_max, c_max]
@@ -528,6 +552,8 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
 
 void LightTrack::track(State &state, cv::Mat im)
 {
+    time_checker time1;
+
     Config *p = state.p;
     cv::Scalar avg_chans = state.avg_chans;
     std::vector<std::vector<float> > window = state.window;
@@ -544,9 +570,12 @@ void LightTrack::track(State &state, cv::Mat im)
     float s_x = s_z + 2 * pad;
 
 
+    time1.start();
     cv::Mat x_crop;
     CropInfo crop_info;
     get_subwindow_tracking(im, x_crop, crop_info, target_pos, p->instance_size, round(s_x), avg_chans);
+    time1.stop();
+    time1.show_distance("Update stage ---- get subwindow cost time");
 
     state.x_crop = x_crop;
 
@@ -563,6 +592,7 @@ void LightTrack::track(State &state, cv::Mat im)
 
     std::cout << "track target pos: " << target_pos << std::endl;
     std::cout << "track target_sz: " << target_sz << std::endl;
+    std::cout << "cls_score_max: " << cls_score_max << std::endl;
 
     state.target_pos = target_pos;
     state.target_sz = target_sz;
