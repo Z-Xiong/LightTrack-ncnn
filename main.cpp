@@ -128,7 +128,7 @@ void track(LightTrack *siam_tracker, const char *video_path)
             cv::waitKey(10);
 
             // 相似度大于0.5的情况才进行矩形框标注
-            if (score > 0.5)
+            if (score > 0.3)
             {
                 // Draw rect.
                 cv::rectangle(frame, rect, cv::Scalar(0, 255, 0));
