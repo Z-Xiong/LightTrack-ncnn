@@ -78,9 +78,9 @@ struct State {
     int im_h;
     int im_w;
     cv::Scalar avg_chans;
-    std::vector<std::vector<float> > window;
+    std::vector<float> window;
     cv::Point target_pos;
-    cv::Scalar target_sz = {0.f, 0.f};
+    cv::Point2f target_sz = {0.f, 0.f};
     cv::Mat x_crop;
     float cls_sccre_max;
 
@@ -96,8 +96,8 @@ class LightTrack {
 public:
     LightTrack(std::string model_init, std::string model_backbone, std::string model_neck_head);
     ~LightTrack();
-    void init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, State &state);
-    void update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scalar &target_sz, std::vector<std::vector<float> > &window, float scale_z, Config *p, float &cls_score_max);
+    void init(cv::Mat img, cv::Point target_pos, cv::Point2f target_sz, State &state);
+    void update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point2f &target_sz, std::vector<float> &window, float scale_z, Config *p, float &cls_score_max);
     void track(State &state, cv::Mat im);
     void load_model(std::string model_init, std::string model_backbone, std::string model_neck_head);
 
@@ -107,21 +107,15 @@ public:
 
     int stride=16;
     int even=0;
-    cv::Scalar INPUT_MEAN = {0.485f, 0.456f, 0.406f};   // RGB
-    cv::Scalar INPUT_STD = {0.229f, 0.224f, 0.225f};
     const float mean_vals[3] = { 0.485f*255.f, 0.456f*255.f, 0.406f*255.f };  // RGB
     const float norm_vals[3] = {1/0.229f/255.f, 1/0.224f/255.f, 1/0.225f/255.f};
 
 private:
-    float change(float r);
-    void sz(const ncnn::Mat& w, const ncnn::Mat& h, ncnn::Mat &out);
-    float sz_wh(cv::Scalar wh);
-    void normalize(cv::Mat &img);
     void grids(Config *p);
     void get_subwindow_tracking(const cv::Mat &img, cv::Mat &out, CropInfo &crop_info, cv::Point pos, int model_sz, float original_sz, cv::Scalar avg_chans);
 
-    ncnn::Mat grid_to_search_x;
-    ncnn::Mat grid_to_search_y;
+    std::vector<float> grid_to_search_x;
+    std::vector<float> grid_to_search_y;
 };
 
 

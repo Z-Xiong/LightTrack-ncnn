@@ -6,12 +6,12 @@
 #include "LightTrack.h"
 
 
-void cxy_wh_2_rect(const cv::Point& pos, cv::Scalar sz, cv::Rect &rect)
+void cxy_wh_2_rect(const cv::Point& pos, const cv::Point2f& sz, cv::Rect &rect)
 {
-    rect.x = max(0, pos.x - int(sz[0] / 2));
-    rect.y = max(0, pos.y - int(sz[1] / 2));
-    rect.width = int(sz[0]);
-    rect.height = int(sz[1]);
+    rect.x = max(0, pos.x - int(sz.x / 2));
+    rect.y = max(0, pos.y - int(sz.y / 2));
+    rect.width = int(sz.x);
+    rect.height = int(sz.y);
 }
 
 
@@ -84,7 +84,7 @@ void track(LightTrack *siam_tracker, const char *video_path)
     cv::Point target_pos;
     target_pos.x = trackWindow.x + trackWindow.width / 2;
     target_pos.y = trackWindow.y + trackWindow.height / 2;
-    siam_tracker->init(frame, target_pos, cv::Scalar {float(trackWindow.width), float(trackWindow.height)}, state);
+    siam_tracker->init(frame, target_pos, cv::Point2f {float(trackWindow.width), float(trackWindow.height)}, state);
     std::cout << "==========================" << std::endl;
     std::cout << "Init done!" << std::endl;
     std::cout << std::endl;
