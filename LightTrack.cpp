@@ -120,7 +120,7 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Point2f target_sz, 
     cv::Mat z_crop;
     CropInfo crop_info;
 
-    get_subwindow_tracking(img, z_crop, crop_info, target_pos, state.p->exemplar_size, s_z, state.avg_chans);  //state.p->exemplar_size=127
+    z_crop  = get_subwindow_tracking(img, target_pos, state.p->exemplar_size, int(s_z));
 
     // net init
     ncnn::Extractor ex_init = net_init.create_extractor();
@@ -332,7 +332,7 @@ void LightTrack::track(State &state, cv::Mat im)
     time1.start();
     cv::Mat x_crop;
     CropInfo crop_info;
-    get_subwindow_tracking(im, x_crop, crop_info, target_pos, p->instance_size, round(s_x), avg_chans);
+    x_crop  = get_subwindow_tracking(im, target_pos, p->instance_size, int(s_x));
     time1.stop();
     time1.show_distance("Update stage ---- get subwindow cost time");
 
@@ -388,99 +388,37 @@ void LightTrack::grids(Config *p)
     }
 }
 
-void LightTrack::get_subwindow_tracking(const cv::Mat &im, cv::Mat &out, CropInfo &crop_info, cv::Point pos, int model_sz, float original_sz, cv::Scalar avg_chans)
+cv::Mat LightTrack::get_subwindow_tracking(cv::Mat im, cv::Point2f pos, int model_sz, int original_sz)
 {
-    /*
-    SiamFC type cropping
-    */
-    // model_sz: 127 for init, 288 for backbone
-    // original_sz: search roi
-    cv::Size im_sz = im.size();
-    float center = (original_sz + 1) / 2;
+    float c = (float)(original_sz + 1) / 2;
+    int context_xmin = std::round(pos.x - c);
+    int context_xmax = context_xmin + original_sz - 1;
+    int context_ymin = std::round(pos.y - c);
+    int context_ymax = context_ymin + original_sz - 1;
 
-    // context rect is search range of original image
-    float context_xmin = round(float(pos.x) - center);
-    float context_xmax = context_xmin + original_sz - 1;
-    float context_ymin = round(float(pos.y) - center);
-    float context_ymax = context_ymin + original_sz - 1;
-
-    int left_pad = int(max(0.f, -context_xmin));
-    int top_pad = int(max(0.f, -context_ymin));
-    int right_pad = int(max(0.f, context_xmax - im_sz.width + 1));
-    int bottom_pad = int(max(0.f, context_ymax - im_sz.height +1));
+    int left_pad = int(std::max(0, -context_xmin));
+    int top_pad = int(std::max(0, -context_ymin));
+    int right_pad = int(std::max(0, context_xmax - im.cols + 1));
+    int bottom_pad = int(std::max(0, context_ymax - im.rows + 1));
 
     context_xmin += left_pad;
     context_xmax += left_pad;
     context_ymin += top_pad;
     context_ymax += top_pad;
+    cv::Mat im_path_original;
 
-    int rows = im.rows;
-    int cols = im.cols;
-    cv::Mat im_path_original, tete_im;
-
-    if (top_pad || bottom_pad || left_pad || right_pad)
+    if (top_pad > 0 || left_pad > 0 || right_pad > 0 || bottom_pad > 0)
     {
-        cv::Mat te_im(rows + top_pad + bottom_pad, cols + left_pad + right_pad, CV_8UC3, cv::Scalar::all(0));
-        // for return mask
-        tete_im.create(rows + top_pad + bottom_pad, cols + left_pad + right_pad, CV_8SC1);
-        tete_im.setTo(cv::Scalar(0));
-
-        //
-//        te_im.colRange(left_pad, left_pad+cols).rowRange(top_pad, top_pad+rows);
-        cv::Mat roi;
-        roi = te_im(cv::Range(top_pad, top_pad+rows), cv::Range(left_pad, left_pad+cols));
-        im.copyTo(roi);
-
-        if (top_pad)
-        {
-            roi = te_im(cv::Range(0, top_pad), cv::Range(left_pad, left_pad+cols));
-            roi.setTo(avg_chans);
-        }
-        if (bottom_pad)
-        {
-            roi = te_im(cv::Range(top_pad + rows, rows + top_pad + bottom_pad), cv::Range(left_pad, left_pad+cols));
-            roi.setTo(avg_chans);
-        }
-        if (left_pad)
-        {
-            roi = te_im(cv::Range(0, rows+top_pad+bottom_pad), cv::Range(0, left_pad));
-            roi.setTo(avg_chans);
-        }
-        if (right_pad)
-        {
-            roi = te_im(cv::Range(0, rows+top_pad+bottom_pad), cv::Range(left_pad+cols, left_pad+right_pad+cols));
-            roi.setTo(avg_chans);
-        }
-        im_path_original = te_im(cv::Range(int(context_ymin), int(context_ymax)+1), cv::Range(int(context_xmin), int(context_xmax)+1));
-    } else
-    {
-        tete_im.create(rows, cols, CV_8UC1);
-        tete_im.setTo(cv::Scalar(0));
-        im_path_original = im(cv::Range(int(context_ymin), int(context_ymax)+1), cv::Range(int(context_xmin), int(context_xmax)+1));
+        cv::Mat te_im = cv::Mat::zeros(im.rows + top_pad + bottom_pad, im.cols + left_pad + right_pad, CV_8UC3);
+        //te_im(cv::Rect(left_pad, top_pad, im.cols, im.rows)) = im;
+        cv::copyMakeBorder(im, te_im, top_pad, bottom_pad, left_pad, right_pad, cv::BORDER_CONSTANT, 0.f);
+        im_path_original = te_im(cv::Rect(context_xmin, context_ymin, context_xmax - context_xmin + 1, context_ymax - context_ymin + 1));
     }
-
-   
-
-    cv::Mat im_patch;
-    if (model_sz != int(original_sz))
-        //original_size resize to (288, 288)
-        cv::resize(im_path_original, im_patch, cv::Size(model_sz, model_sz));
     else
-        im_patch = im_path_original;
+        im_path_original = im(cv::Rect(context_xmin, context_ymin, context_xmax - context_xmin + 1, context_ymax - context_ymin + 1));
 
-    out = im_patch;
+    cv::Mat im_path;
+    cv::resize(im_path_original, im_path, cv::Size(model_sz, model_sz));
 
-    crop_info.crop_cords.resize(4);
-    crop_info.crop_cords[0] = int(context_xmin);
-    crop_info.crop_cords[1] = int(context_xmax);
-    crop_info.crop_cords[2] = int(context_ymin);
-    crop_info.crop_cords[3] = int(context_ymax);
-
-    crop_info.empty_mask = tete_im;
-
-    crop_info.pad_info.resize(4);
-    crop_info.pad_info[0] = top_pad;
-    crop_info.pad_info[1] = left_pad;
-    crop_info.pad_info[3] = rows;
-    crop_info.pad_info[4] = cols;
+    return im_path;
 }

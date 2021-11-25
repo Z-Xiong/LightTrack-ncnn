@@ -112,7 +112,7 @@ public:
 
 private:
     void grids(Config *p);
-    void get_subwindow_tracking(const cv::Mat &img, cv::Mat &out, CropInfo &crop_info, cv::Point pos, int model_sz, float original_sz, cv::Scalar avg_chans);
+    cv::Mat get_subwindow_tracking(cv::Mat im, cv::Point2f pos, int model_sz, int original_sz);
 
     std::vector<float> grid_to_search_x;
     std::vector<float> grid_to_search_y;
