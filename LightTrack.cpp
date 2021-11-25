@@ -507,7 +507,7 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
 
     int r_max = index[1]; int c_max = index[2];
 
-    std::cout << "pscore_window max score is: " << pscore_window.channel(index[0]).row(r_max)[c_max];
+    std::cout << "pscore_window max score is: " << pscore_window.channel(index[0]).row(r_max)[c_max] << std::endl;
 
     // to real size
     float pred_x1_real = pred_x1.channel(index[0]).row(r_max)[c_max]; // pred_x1[r_max, c_max]
