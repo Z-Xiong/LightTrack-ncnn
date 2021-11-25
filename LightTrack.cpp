@@ -267,8 +267,7 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point
 
     time5.stop();
     time5.show_distance("Update stage ---- postprocess cost time");
-
-    std::cout << "pscore_window max score is: " << pscore[r_max * cols + c_max];
+    std::cout << "pscore_window max score is: " << pscore[r_max * cols + c_max] << std::endl;
 
     // to real size
     float pred_x1_real = pred_x1[r_max * cols + c_max]; // pred_x1[r_max, c_max]
