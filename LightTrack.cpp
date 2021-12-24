@@ -4,77 +4,6 @@
 #include "LightTrack.h"
 #include "timer.h"
 
-void visualize(const char* title, const ncnn::Mat& m)
-{
-    std::vector<cv::Mat> normed_feats(m.c);
-
-    for (int i=0; i<m.c; i++)
-    {
-        cv::Mat tmp(m.h, m.w, CV_32FC1, (void*)(const float*)m.channel(i));
-
-        cv::normalize(tmp, normed_feats[i], 0, 255, cv::NORM_MINMAX, CV_8U);
-
-        cv::cvtColor(normed_feats[i], normed_feats[i], cv::COLOR_GRAY2BGR);
-
-        // check NaN
-        for (int y=0; y<m.h; y++)
-        {
-            const float* tp = tmp.ptr<float>(y);
-            uchar* sp = normed_feats[i].ptr<uchar>(y);
-            for (int x=0; x<m.w; x++)
-            {
-                float v = tp[x];
-                if (v != v)
-                {
-                    sp[0] = 0;
-                    sp[1] = 0;
-                    sp[2] = 255;
-                }
-
-                sp += 3;
-            }
-        }
-    }
-
-    int tw = m.w < 10 ? 32 : m.w < 20 ? 16 : m.w < 40 ? 8 : m.w < 80 ? 4 : m.w < 160 ? 2 : 1;
-    int th = (m.c - 1) / tw + 1;
-
-    cv::Mat show_map(m.h * th, m.w * tw, CV_8UC3);
-    show_map = cv::Scalar(127);
-
-    // tile
-    for (int i=0; i<m.c; i++)
-    {
-        int ty = i / tw;
-        int tx = i % tw;
-
-        normed_feats[i].copyTo(show_map(cv::Rect(tx * m.w, ty * m.h, m.w, m.h)));
-    }
-
-    cv::resize(show_map, show_map, cv::Size(0,0), 2, 2, cv::INTER_NEAREST);
-    cv::imshow(title, show_map);
-}
-
-void pretty_print(const ncnn::Mat& m)
-{
-    std::cout << "M channel is " << m.c << std::endl;
-
-    for (int q=0; q<m.c; q++)
-    {
-        const float* ptr = m.channel(q);
-        for (int y=0; y<m.h; y++)
-        {
-            for (int x=0; x<m.w; x++)
-            {
-                printf("%f ", ptr[x]);
-            }
-            ptr += m.w;
-            printf("\n");
-        }
-        printf("------------------------\n");
-    }
-}
-
 inline float fast_exp(float x)
 {
     union {
@@ -90,219 +19,58 @@ inline float sigmoid(float x)
     return 1.0f / (1.0f + fast_exp(-x));
 }
 
-std::vector<float> hanning(int M)
+static float sz_whFun(cv::Point2f wh)
 {
-    std::vector<float> window(M);
-    for (int i=0; i<(M+1)/2; i++)
-    {
-        window[i] = 0.5f - 0.5f * cos(2*PI*i / (M-1));
-        window[M-1-i] = window[i];
-    }
-    return window;
+    float pad = (wh.x + wh.y) * 0.5f;
+    float sz2 = (wh.x + pad) * (wh.y + pad);
+    return std::sqrt(sz2);
 }
 
-std::vector<std::vector<float>> ones(int M, int N)
+static std::vector<float> sz_change_fun(std::vector<float> w, std::vector<float> h,float sz)
 {
-    std::vector<std::vector<float> > out(M);
-    for (int i=0; i<M; i++)
+    int rows = int(std::sqrt(w.size()));
+    int cols = int(std::sqrt(w.size()));
+    std::vector<float> pad(rows * cols, 0);
+    std::vector<float> sz2;
+    for (int i = 0; i < cols; i++)
     {
-        out[i].resize(N);
-    }
-    for (int i=0; i<M; i++)
-        for (int j = 0; j < N; j++)
+        for (int j = 0; j < rows; j++)
         {
-            out[i][j] = 1.f;
-        }
-    return out;
-}
-
-std::vector<std::vector<float>> vector_outer(std::vector<float> a, std::vector<float> b)
-{
-    std::vector<std::vector<float> > out(a.size());
-    for (int i=0; i<a.size(); i++)
-    {
-        out[i].resize(b.size());
-    }
-    for (int i=0; i<a.size(); i++)
-    {
-        for (int j = 0; j < b.size(); j++)
-        {
-            out[i][j] = a[i] * b[j];
+            pad[i*cols+j] = (w[i * cols + j] + h[i * cols + j]) * 0.5f;
         }
     }
-    return out;
-}
-
-
-// https://github.com/Tencent/ncnn/wiki/low-level-operation-api
-enum OperationType
-{
-    Operation_ADD = 0,
-    Operation_SUB = 1,
-    Operation_MUL = 2,
-    Operation_DIV = 3,
-    Operation_POW = 4,
-    Operation_CHANGE = 5,
-    Operation_EXP = 6,
-    Operation_RSUB = 7,
-    Operation_RDIV = 8,
-    Operation_SIGMOID = 9,
-};
-
-// https://github.com/Tencent/ncnn/blob/master/src/layer/binaryop.cpp
-void binary_op(const ncnn::Mat& a, const ncnn::Mat& b, ncnn::Mat& out, OperationType op_type, float scalar = 1.f)
-{
-    out.create_like(a);
-
-    for (int c=0; c < a.c; c++)
+    for (int i = 0; i < cols; i++)
     {
-        const float *ptr_a = a.channel(c);
-        const float *ptr_b = b.channel(c);
-        float *ptr_out = out.channel(c);
-        for (int i=0; i < a.h; i++)
+        for (int j = 0; j < rows; j++)
         {
-            for (int j=0; j < a.w; j++)
-            {
-                switch (op_type) {
-                    case Operation_ADD:
-                        ptr_out[j] = ptr_a[j] + ptr_b[j]; break;
-                    case Operation_SUB:
-                        ptr_out[j] = ptr_a[j] - ptr_b[j]; break;
-                    case Operation_MUL:
-                        ptr_out[j] = ptr_a[j] * ptr_b[j]; break;
-                    case Operation_DIV:
-                        ptr_out[j] = ptr_a[j] / ptr_b[j]; break;
-                    case Operation_POW:
-                        ptr_out[j] = pow(ptr_a[j], ptr_b[j]); break;
-                    case Operation_CHANGE:
-                        ptr_out[j] = std::max(ptr_a[j], 1.f / ptr_b[j]); break;
-                    case Operation_EXP:
-                        ptr_out[j] = std::exp(-(ptr_a[j] * ptr_b[j] - 1) * scalar); break;
-                    case Operation_RSUB:
-                        ptr_out[j] = ptr_b[j] - ptr_a[j]; break;
-                    case Operation_RDIV:
-                        ptr_out[j] = ptr_b[j] / ptr_a[j]; break;
-                    default:
-                        break;
-                }
-            }
-            ptr_a += a.w; ptr_b += b.w; ptr_out += out.w;
+            float t = std::sqrt((w[i * rows + j] + pad[i*rows+j]) * (h[i * rows + j] + pad[i*rows+j])) / sz;
+
+            sz2.push_back(std::max(t,(float)1.0/t) );
         }
     }
+
+
+    return sz2;
 }
 
-void binary_op_scalar(const ncnn::Mat& a, const float b, ncnn::Mat& out, OperationType op_type)
+static std::vector<float> ratio_change_fun(std::vector<float> w, std::vector<float> h, cv::Point2f target_sz)
 {
-    out.create_like(a);
-
-    for (int c=0; c < a.c; c++)
+    int rows = int(std::sqrt(w.size()));
+    int cols = int(std::sqrt(w.size()));
+    float ratio = target_sz.x / target_sz.y;
+    std::vector<float> sz2;
+    for (int i = 0; i < rows; i++)
     {
-        const float *ptr_a = a.channel(c);
-        float *ptr_out = out.channel(c);
-        for (int i=0; i < a.h; i++)
+        for (int j = 0; j < cols; j++)
         {
-            for (int j=0; j < a.w; j++)
-            {
-                switch (op_type) {
-                    case Operation_ADD:
-                        ptr_out[j] = ptr_a[j] + b; break;
-                    case Operation_SUB:
-                        ptr_out[j] = ptr_a[j] - b; break;
-                    case Operation_MUL:
-                        ptr_out[j] = ptr_a[j] * b; break;
-                    case Operation_DIV:
-                        ptr_out[j] = ptr_a[j] / b; break;
-                    case Operation_POW:
-                        ptr_out[j] = pow(ptr_a[j], b); break;
-                    case Operation_CHANGE:
-                        ptr_out[j] = std::max(ptr_a[j], b); break;
-                    case Operation_EXP:
-                        ptr_out[j] = std::exp(-(ptr_a[j] * b)); break;
-                    case Operation_RSUB:
-                        ptr_out[j] = b - ptr_a[j]; break;
-                    case Operation_RDIV:
-                        ptr_out[j] = b / ptr_a[j]; break;
-                    case Operation_SIGMOID:
-                        ptr_out[j] = sigmoid(ptr_a[j]); break;
-                    default:
-                        break;
-                }
-            }
-            ptr_a += a.w; ptr_out += out.w;
+            float t = ratio / (w[i * cols + j] / h[i * cols + j]);
+            sz2.push_back(std::max(t, (float)1.0 / t));
         }
     }
+
+    return sz2;
 }
 
-void binary_op_nihui(const ncnn::Mat& a, const ncnn::Mat& b, ncnn::Mat& c, OperationType op_type)
-{
-    ncnn::Option opt;
-    opt.num_threads = 2;
-    opt.use_bf16_storage = false;
-    opt.use_packing_layout = false;
-
-    ncnn::Layer* op = ncnn::create_layer("BinaryOp");
-
-    // set param
-    ncnn::ParamDict pd;
-    pd.set(0, op_type);
-
-    op->load_param(pd);
-
-    op->create_pipeline(opt);
-
-    // forward
-    std::vector<ncnn::Mat> bottoms(2);
-    bottoms[0] = a;
-    bottoms[1] = b;
-
-    std::vector<ncnn::Mat> tops(1);
-    op->forward(bottoms, tops, opt);
-
-    c = tops[0];
-
-    op->destroy_pipeline(opt);
-
-    delete op;
-
-}
-
-void vector2ncnnmat(const std::vector<std::vector<float> > &b, ncnn::Mat &a)
-{
-    int h = b.size();
-    int w = b[0].size();
-
-    a = ncnn::Mat(w, h);
-
-    for (int c=0; c < a.c; c++)
-    {
-        float *ptr = a.channel(c);
-        for (int i=0; i<a.h; i++)
-        {
-            for (int j=0; j<a.w; j++)
-            {
-                ptr[j] = b[i][j];
-            }
-            ptr += a.w;
-        }
-    }
-}
-
-void ncnnmat2vector(const ncnn::Mat &a, std::vector<std::vector<float> > &out)
-{
-    out = std::vector<std::vector<float> > (a.h);
-    for (int i=0; i<a.h; i++)
-    {
-        out[i].resize(a.w);
-    }
-    for (int i=0; i<a.h; i++)
-    {
-        const float *ptr = a.row(i);
-        for (int j = 0; j < a.w; j++)
-        {
-            out[i][j] = ptr[j];
-        }
-    }
-}
 
 LightTrack::LightTrack(std::string model_init, std::string model_backbone, std::string model_neck_head)
 {
@@ -315,7 +83,7 @@ LightTrack::~LightTrack()
 
 }
 
-void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, State &state)
+void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Point2f target_sz, State &state)
 {
     state.p = new Config(this->stride, this->even);
 
@@ -343,8 +111,8 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, S
 
     // 对模板图像而言：在第一帧以s_z为边长，以目标中心为中心点，截取图像补丁（如果超出第一帧的尺寸，用均值填充）。之后将其resize为127x127x3.成为模板图像
     // context = 1/2 * (w+h) = 2*pad
-    float wc_z = target_sz[0] + state.p->context_amount * (target_sz[0] + target_sz[1]);
-    float hc_z = target_sz[1] + state.p->context_amount * (target_sz[0] + target_sz[1]);
+    float wc_z = target_sz.x + state.p->context_amount * (target_sz.x + target_sz.y);
+    float hc_z = target_sz.y + state.p->context_amount * (target_sz.x + target_sz.y);
     // z_crop size = sqrt((w+2p)*(h+2p))
     float s_z = round(sqrt(wc_z * hc_z));   // orignal size
 
@@ -352,7 +120,7 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, S
     cv::Mat z_crop;
     CropInfo crop_info;
 
-    get_subwindow_tracking(img, z_crop, crop_info, target_pos, state.p->exemplar_size, s_z, state.avg_chans);  //state.p->exemplar_size=127
+    z_crop  = get_subwindow_tracking(img, target_pos, state.p->exemplar_size, int(s_z));
 
     // net init
     ncnn::Extractor ex_init = net_init.create_extractor();
@@ -363,13 +131,21 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, S
     ex_init.input("input1", ncnn_img);
     ex_init.extract("output.1", zf);
 
-    std::vector<std::vector<float> > window;
-    if (state.p->windowing == "cosine")
-        window  =vector_outer(hanning(state.p->score_size), hanning(state.p->score_size));
-    else if (state.p->windowing == "uniform")
-        window  = ones(state.p->score_size, state.p->score_size);
-    else
-        throw "Unsupported window type";
+    std::vector<float> hanning(state.p->score_size,0);  // 18
+    std::vector<float> window(state.p->score_size*state.p->score_size, 0);
+    for (int i = 0; i < state.p->score_size; i++)
+    {
+        float w = 0.5f - 0.5f * std::cos(2 * 3.1415926535898f * i / (state.p->score_size - 1));
+        hanning[i] = w;
+    }
+    for (int i = 0; i < state.p->score_size; i++)
+    {
+
+        for (int j = 0; j < state.p->score_size; j++)
+        {
+            window[i*state.p->score_size+j] = hanning[i] * hanning[j];
+        }
+    }
 
     state.avg_chans = avg_chans;
     state.window = window;
@@ -379,7 +155,7 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Scalar target_sz, S
 
 }
 
-void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scalar &target_sz, std::vector<std::vector<float> > &window, float scale_z, Config *p, float &cls_score_max)
+void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point2f &target_sz, std::vector<float> &window, float scale_z, Config *p, float &cls_score_max)
 {
     time_checker time2, time3, time4, time5;
 
@@ -415,105 +191,89 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
     ex_neck_head.input("input1", zf);
     ex_neck_head.input("input2", xf);
     ncnn::Mat cls_score, bbox_pred;
-    ex_neck_head.extract("output.1", cls_score);
-    ex_neck_head.extract("output.2", bbox_pred);
+    ex_neck_head.extract("output.1", cls_score);  // [c, w, h] = [1, 18, 18]
+    ex_neck_head.extract("output.2", bbox_pred); // [c, w, h] = [4, 18, 18]
     time4.stop();
     time4.show_distance("Update stage ---- output cls_score and bbox_pred extracting cost time");
 
     time5.start();
-    ncnn::Mat cls_score_sigmoid;
     // manually call sigmoid on the output
+    std::vector<float> cls_score_sigmoid;
+
+    float* cls_score_data = (float*)cls_score.data;
+    cls_score_sigmoid.clear();
+
+    int cols = cls_score.w;
+    int rows = cls_score.h;
+
+    for (int i = 0; i < cols*rows; i++)   // 18 * 18
     {
-        /*
-        ncnn::Layer* sigmoid = ncnn::create_layer("Sigmoid");
-
-        ncnn::ParamDict pd;
-        sigmoid->load_param(ptarget_posd);
-
-        sigmoid->forward_inplace(cls_score, net_neck_head.opt);
-
-        delete sigmoid;
-        */
-
-        // more faster
-        binary_op_scalar(cls_score, 1, cls_score_sigmoid, Operation_SIGMOID);
+        cls_score_sigmoid.push_back(sigmoid(cls_score_data[i]));
     }
 
-    // bbox to real predict
-    ncnn::Mat pred_x1, pred_y1, pred_x2, pred_y2;
-    binary_op(this->grid_to_search_x.channel(0), bbox_pred.channel(0), pred_x1, Operation_SUB);
-    binary_op(this->grid_to_search_y.channel(0), bbox_pred.channel(1), pred_y1, Operation_SUB);
-    binary_op(this->grid_to_search_x.channel(0), bbox_pred.channel(2), pred_x2, Operation_ADD);
-    binary_op(this->grid_to_search_y.channel(0), bbox_pred.channel(3), pred_y2, Operation_ADD);
+    std::vector<float> pred_x1(cols*rows, 0), pred_y1(cols*rows, 0), pred_x2(cols*rows, 0), pred_y2(cols*rows, 0);
 
-    // size penalty (1)
-    float sz_wh = this->sz_wh(target_sz);
-    ncnn::Mat w_mat, h_mat, wh_mat;
-    binary_op(pred_x2, pred_x1, w_mat, Operation_SUB);
-    binary_op(pred_y2, pred_y1, h_mat, Operation_SUB);
-    this->sz(w_mat, h_mat, wh_mat);
-
-    ncnn::Mat change_mat1;
-    binary_op_scalar(wh_mat, sz_wh, change_mat1, Operation_DIV);
-
-    ncnn::Mat s_c;
-    binary_op(change_mat1, change_mat1, s_c, Operation_CHANGE);
-
-    // size penalty (2)
-    float w_h_ratio = target_sz[0] / target_sz[1];
-
-    ncnn::Mat pred_w_h_ratio;
-    binary_op(w_mat, h_mat, pred_w_h_ratio, Operation_DIV);
-
-    ncnn::Mat change_mat2;
-    binary_op_scalar(pred_w_h_ratio, w_h_ratio, change_mat2, Operation_RDIV);
-
-    ncnn::Mat r_c;
-    binary_op(change_mat2, change_mat2, r_c, Operation_CHANGE);
-
-    ncnn::Mat penalty, pscore;
-    binary_op(r_c, s_c, penalty, Operation_EXP, p->penalty_tk);
-    binary_op(penalty, cls_score_sigmoid, pscore, Operation_MUL);
-
-    // window penalty
-    ncnn::Mat window_mat, pscore_mul, pscore_window, window_mat_mul;
-    vector2ncnnmat(window, window_mat);
-    binary_op_scalar(window_mat, p->window_influence, window_mat_mul, Operation_MUL);
-    binary_op_scalar(pscore, 1-p->window_influence, pscore_mul, Operation_MUL);
-    binary_op(pscore_mul, window_mat_mul, pscore_window, Operation_ADD);
-
-    time5.stop();
-    time5.show_distance("Update stage ---- postprocess cost time");
-
-    // get max
-    std::vector<int> index(3);
-    for (int c=0; c < pscore_window.c; c++)
+    float* bbox_pred_data1 = bbox_pred.channel(0);
+    float* bbox_pred_data2 = bbox_pred.channel(1);
+    float* bbox_pred_data3 = bbox_pred.channel(2);
+    float* bbox_pred_data4 = bbox_pred.channel(3);
+    for (int i=0; i<rows; i++)
     {
-        float *ptr = pscore_window.channel(c);
-        float *max_ptr = ptr;
-        for (int i=0; i < pscore_window.h; i++)
+        for (int j=0; j<cols; j++)
         {
-            for (int j=0; j < pscore_window.w; j++)
-            {
-                if (ptr[j] >= *max_ptr)
-                {
-                    max_ptr = ptr + j;
-                    index[0] = c; index[1] = i; index[2] = j;
-                }
-            }
-            ptr += pscore_window.w;
+            pred_x1[i*cols + j] = this->grid_to_search_x[i*cols + j] - bbox_pred_data1[i*cols + j];
+            pred_y1[i*cols + j] = this->grid_to_search_y[i*cols + j] - bbox_pred_data2[i*cols + j];
+            pred_x2[i*cols + j] = this->grid_to_search_x[i*cols + j] + bbox_pred_data3[i*cols + j];
+            pred_y2[i*cols + j] = this->grid_to_search_y[i*cols + j] + bbox_pred_data4[i*cols + j];
         }
     }
 
-    int r_max = index[1]; int c_max = index[2];
+    // size penalty (1)
+    std::vector<float> w(cols*rows, 0), h(cols*rows, 0);
+    for (int i=0; i<rows; i++)
+    {
+        for (int j=0; j<cols; j++)
+        {
+            w[i*cols + j] = pred_x2[i*cols + j] - pred_x1[i*cols + j];
+            h[i*rows + j] = pred_y2[i*rows + j] - pred_y1[i*cols + j];
+        }
+    }
 
-    std::cout << "pscore_window max score is: " << pscore_window.channel(index[0]).row(r_max)[c_max] << std::endl;
+    float sz_wh = sz_whFun(target_sz);
+    std::vector<float> s_c = sz_change_fun(w, h, sz_wh);
+    std::vector<float> r_c = ratio_change_fun(w, h, target_sz);
+
+    std::vector<float> penalty(rows*cols,0);
+    for (int i = 0; i < rows * cols; i++)
+    {
+        penalty[i] = std::exp(-1 * (s_c[i] * r_c[i]-1) * p->penalty_tk);
+    }
+
+    // window penalty
+    std::vector<float> pscore(rows*cols,0);
+    int r_max = 0, c_max = 0;
+    float maxScore = 0;
+    for (int i = 0; i < rows * cols; i++)
+    {
+        pscore[i] = (penalty[i] * cls_score_sigmoid[i]) * (1 - p->window_influence) + window[i] * p->window_influence;
+        if (pscore[i] > maxScore)
+        {
+            // get max
+            maxScore = pscore[i];
+            r_max = std::floor(i / rows);
+            c_max = ((float)i / rows - r_max) * rows;
+        }
+    }
+
+    time5.stop();
+    time5.show_distance("Update stage ---- postprocess cost time");
+    std::cout << "pscore_window max score is: " << pscore[r_max * cols + c_max] << std::endl;
 
     // to real size
-    float pred_x1_real = pred_x1.channel(index[0]).row(r_max)[c_max]; // pred_x1[r_max, c_max]
-    float pred_y1_real = pred_y1.channel(index[0]).row(r_max)[c_max];
-    float pred_x2_real = pred_x2.channel(index[0]).row(r_max)[c_max];
-    float pred_y2_real = pred_y2.channel(index[0]).row(r_max)[c_max];
+    float pred_x1_real = pred_x1[r_max * cols + c_max]; // pred_x1[r_max, c_max]
+    float pred_y1_real = pred_y1[r_max * cols + c_max];
+    float pred_x2_real = pred_x2[r_max * cols + c_max];
+    float pred_y2_real = pred_y2[r_max * cols + c_max];
 
     float pred_xs = (pred_x1_real + pred_x2_real) / 2;
     float pred_ys = (pred_y1_real + pred_y2_real) / 2;
@@ -528,26 +288,25 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Scala
     pred_w /=scale_z;
     pred_h /= scale_z;
 
-    target_sz[0] = target_sz[0] / scale_z;
-    target_sz[1] = target_sz[1] / scale_z;
+    target_sz.x = target_sz.x / scale_z;
+    target_sz.y = target_sz.y / scale_z;
 
     // size learning rate
-    float lr = penalty.channel(index[0]).row(r_max)[c_max]
-            * cls_score_sigmoid.channel(index[0]).row(r_max)[c_max] * p->lr;
+    float lr = penalty[r_max * cols + c_max] * cls_score_sigmoid[r_max * cols + c_max] * p->lr;
 
     // size rate
     auto res_xs = float (target_pos.x + diff_xs);
     auto res_ys = float (target_pos.y + diff_ys);
-    float res_w = pred_w * lr + (1 - lr) * target_sz[0];
-    float res_h = pred_h * lr + (1 - lr) * target_sz[1];
+    float res_w = pred_w * lr + (1 - lr) * target_sz.x;
+    float res_h = pred_h * lr + (1 - lr) * target_sz.y;
 
     target_pos.x = int(res_xs);
     target_pos.y = int(res_ys);
 
-    target_sz[0] = target_sz[0] * (1 - lr) + lr * res_w;
-    target_sz[1] = target_sz[1] * (1 - lr) + lr * res_h;
+    target_sz.x = target_sz.x * (1 - lr) + lr * res_w;
+    target_sz.y = target_sz.y * (1 - lr) + lr * res_h;
 
-    cls_score_max = cls_score_sigmoid.channel(index[0]).row(r_max)[c_max];
+    cls_score_max = cls_score_sigmoid[r_max * cols + c_max];
 }
 
 void LightTrack::track(State &state, cv::Mat im)
@@ -556,12 +315,12 @@ void LightTrack::track(State &state, cv::Mat im)
 
     Config *p = state.p;
     cv::Scalar avg_chans = state.avg_chans;
-    std::vector<std::vector<float> > window = state.window;
+    std::vector<float> window = state.window;
     cv::Point target_pos = state.target_pos;
-    cv::Scalar target_sz = state.target_sz;
+    cv::Point2f target_sz = state.target_sz;
 
-    float hc_z = target_sz[1] + p->context_amount * (target_sz[0] + target_sz[1]);
-    float wc_z = target_sz[0] + p->context_amount * (target_sz[0] + target_sz[1]);
+    float hc_z = target_sz.y + p->context_amount * (target_sz.x + target_sz.y);
+    float wc_z = target_sz.x + p->context_amount * (target_sz.x + target_sz.y);
     float s_z = sqrt(wc_z * hc_z);  // roi size
     float scale_z = p->exemplar_size / s_z;  // 127/
 
@@ -573,22 +332,22 @@ void LightTrack::track(State &state, cv::Mat im)
     time1.start();
     cv::Mat x_crop;
     CropInfo crop_info;
-    get_subwindow_tracking(im, x_crop, crop_info, target_pos, p->instance_size, round(s_x), avg_chans);
+    x_crop  = get_subwindow_tracking(im, target_pos, p->instance_size, int(s_x));
     time1.stop();
     time1.show_distance("Update stage ---- get subwindow cost time");
 
     state.x_crop = x_crop;
 
     // update
-    target_sz[0] = target_sz[0] * scale_z;
-    target_sz[1] = target_sz[1] * scale_z;
+    target_sz.x = target_sz.x * scale_z;
+    target_sz.y = target_sz.y * scale_z;
 
     float cls_score_max;
     this->update(x_crop, target_pos, target_sz, window, scale_z, p, cls_score_max);
-    target_pos.x = max(0, min(state.im_w, target_pos.x));
-    target_pos.y = max(0, min(state.im_h, target_pos.y));
-    target_sz[0]= max(10., min(double(state.im_w), target_sz[0]));
-    target_sz[1] = max(10., min(double(state.im_h), target_sz[1]));
+    target_pos.x = std::max(0, min(state.im_w, target_pos.x));
+    target_pos.y = std::max(0, min(state.im_h, target_pos.y));
+    target_sz.x = float(std::max(10, min(state.im_w, int(target_sz.x))));
+    target_sz.y = float(std::max(10, min(state.im_h, int(target_sz.y))));
 
     std::cout << "track target pos: " << target_pos << std::endl;
     std::cout << "track target_sz: " << target_sz << std::endl;
@@ -608,49 +367,6 @@ void LightTrack::load_model(std::string model_init, std::string model_backbone, 
     this->net_neck_head.load_model((model_neck_head+".bin").c_str());
 }
 
-float LightTrack::change(float r)
-{
-    return std::max(r, 1.f/r);
-}
-
-void LightTrack::sz(const ncnn::Mat& w, const ncnn::Mat& h, ncnn::Mat &out)
-{
-    // pad = (w + h) * 0.5
-    ncnn::Mat tmp, pad;
-    binary_op(w, h, tmp, Operation_ADD);
-
-    ncnn::Mat scalar;
-    scalar.create_like(tmp);
-    scalar.fill(0.5f);
-
-    binary_op(tmp, scalar, pad, Operation_MUL);
-
-    // sz2 = (w + pad) * (h + pad)
-    ncnn::Mat a1, a2, sz2;
-    binary_op(w, pad, a1, Operation_ADD);
-    binary_op(h, pad, a2, Operation_ADD);
-    binary_op(a1, a2, sz2, Operation_MUL);
-
-    // out = sqrt(sz2)
-    ncnn::Mat sqrt_mat;
-    sqrt_mat.create_like(sz2);
-    sqrt_mat.fill(0.5f);
-    binary_op(sz2, sqrt_mat, out, Operation_POW);
-}
-
-float LightTrack::sz_wh(cv::Scalar wh)
-{
-    float pad = (wh[1] + wh[0]) * 0.5;
-    float sz2 = (wh[1] + pad) * (wh[0] + pad);
-    return pow(sz2, 0.5f);
-}
-
-void LightTrack::normalize(cv::Mat &img)
-{
-    img.convertTo(img, CV_32FC3, 1.0/255, 0);
-    img = (img - this->INPUT_MEAN) / this->INPUT_STD;
-}
-
 void LightTrack::grids(Config *p)
 {
     /*
@@ -659,137 +375,50 @@ void LightTrack::grids(Config *p)
     */
     int sz = p->score_size;   // 18
 
-    // the real shift is -param['shifts']
-    int sz_x = floor(float(sz / 2));   // 9
-    int sz_y = floor(float(sz / 2));
+    this->grid_to_search_x.resize(sz * sz, 0);
+    this->grid_to_search_y.resize(sz * sz, 0);
 
-//    this->grid_to_search_x = (float **) malloc(sz * sizeof (float *));
-//    this->grid_to_search_y = (float **) malloc(sz * sizeof (float *));
-//
-//    for (int i=0; i < sz; i++)
-//    {
-//        this->grid_to_search_x[i] = (float *) malloc(sz * sizeof (float ));
-//        this->grid_to_search_y[i] = (float *) malloc(sz * sizeof (float ));
-//    }
-//
-//    for (int i=0; i < sz; i++)
-//        for (int j=0; j < sz; j++)
-//        {
-//            this->grid_to_search_x[i][j] = (j - sz_x)*p->total_stride + p->instance_size;
-//            this->grid_to_search_y[i][j] = (i - sz_y)*p->total_stride + p->instance_size;
-//        }
-
-    this->grid_to_search_x.create(sz, sz, 1);   // (18,18,1)
-    this->grid_to_search_y.create(sz, sz, 1);
-    for (int c=0; c < grid_to_search_x.c; c++)
+    for (int i = 0; i < sz; i++)
     {
-        float *grid_x_ptr = this->grid_to_search_x.channel(c);
-        float *grid_y_ptr = this->grid_to_search_y.channel(c);
-
-        for (int i=0; i < grid_to_search_x.h; i++) {
-            for (int j = 0; j < grid_to_search_x.w; j++) {
-                grid_x_ptr[j] = (j - sz_x) * p->total_stride + p->instance_size / 2;
-                grid_y_ptr[j] = (i - sz_y) * p->total_stride + p->instance_size / 2;
-            }
-            grid_x_ptr += grid_to_search_x.w;
-            grid_y_ptr += grid_to_search_x.w;
+        for (int j = 0; j < sz; j++)
+        {
+            this->grid_to_search_x[i*sz+j] = j*p->total_stride;   // 0~18*16 = 0~288
+            this->grid_to_search_y[i*sz+j] = i*p->total_stride;
         }
     }
 }
 
-void LightTrack::get_subwindow_tracking(const cv::Mat &im, cv::Mat &out, CropInfo &crop_info, cv::Point pos, int model_sz, float original_sz, cv::Scalar avg_chans)
+cv::Mat LightTrack::get_subwindow_tracking(cv::Mat im, cv::Point2f pos, int model_sz, int original_sz)
 {
-    /*
-    SiamFC type cropping
-    */
-    // model_sz: 127 for init, 288 for backbone
-    // original_sz: search roi
-    cv::Size im_sz = im.size();
-    float center = (original_sz + 1) / 2;
+    float c = (float)(original_sz + 1) / 2;
+    int context_xmin = std::round(pos.x - c);
+    int context_xmax = context_xmin + original_sz - 1;
+    int context_ymin = std::round(pos.y - c);
+    int context_ymax = context_ymin + original_sz - 1;
 
-    // context rect is search range of original image
-    float context_xmin = round(float(pos.x) - center);
-    float context_xmax = context_xmin + original_sz - 1;
-    float context_ymin = round(float(pos.y) - center);
-    float context_ymax = context_ymin + original_sz - 1;
-
-    int left_pad = int(max(0.f, -context_xmin));
-    int top_pad = int(max(0.f, -context_ymin));
-    int right_pad = int(max(0.f, context_xmax - im_sz.width + 1));
-    int bottom_pad = int(max(0.f, context_ymax - im_sz.height +1));
+    int left_pad = int(std::max(0, -context_xmin));
+    int top_pad = int(std::max(0, -context_ymin));
+    int right_pad = int(std::max(0, context_xmax - im.cols + 1));
+    int bottom_pad = int(std::max(0, context_ymax - im.rows + 1));
 
     context_xmin += left_pad;
     context_xmax += left_pad;
     context_ymin += top_pad;
     context_ymax += top_pad;
+    cv::Mat im_path_original;
 
-    int rows = im.rows;
-    int cols = im.cols;
-    cv::Mat im_path_original, tete_im;
-
-    if (top_pad || bottom_pad || left_pad || right_pad)
+    if (top_pad > 0 || left_pad > 0 || right_pad > 0 || bottom_pad > 0)
     {
-        cv::Mat te_im(rows + top_pad + bottom_pad, cols + left_pad + right_pad, CV_8UC3, cv::Scalar::all(0));
-        // for return mask
-        tete_im.create(rows + top_pad + bottom_pad, cols + left_pad + right_pad, CV_8SC1);
-        tete_im.setTo(cv::Scalar(0));
-
-        //
-//        te_im.colRange(left_pad, left_pad+cols).rowRange(top_pad, top_pad+rows);
-        cv::Mat roi;
-        roi = te_im(cv::Range(top_pad, top_pad+rows), cv::Range(left_pad, left_pad+cols));
-        im.copyTo(roi);
-
-        if (top_pad)
-        {
-            roi = te_im(cv::Range(0, top_pad), cv::Range(left_pad, left_pad+cols));
-            roi.setTo(avg_chans);
-        }
-        if (bottom_pad)
-        {
-            roi = te_im(cv::Range(top_pad + rows, rows + top_pad + bottom_pad), cv::Range(left_pad, left_pad+cols));
-            roi.setTo(avg_chans);
-        }
-        if (left_pad)
-        {
-            roi = te_im(cv::Range(0, rows+top_pad+bottom_pad), cv::Range(0, left_pad));
-            roi.setTo(avg_chans);
-        }
-        if (right_pad)
-        {
-            roi = te_im(cv::Range(0, rows+top_pad+bottom_pad), cv::Range(left_pad+cols, left_pad+right_pad+cols));
-            roi.setTo(avg_chans);
-        }
-        im_path_original = te_im(cv::Range(int(context_ymin), int(context_ymax)+1), cv::Range(int(context_xmin), int(context_xmax)+1));
-    } else
-    {
-        tete_im.create(rows, cols, CV_8UC1);
-        tete_im.setTo(cv::Scalar(0));
-        im_path_original = im(cv::Range(int(context_ymin), int(context_ymax)+1), cv::Range(int(context_xmin), int(context_xmax)+1));
+        cv::Mat te_im = cv::Mat::zeros(im.rows + top_pad + bottom_pad, im.cols + left_pad + right_pad, CV_8UC3);
+        //te_im(cv::Rect(left_pad, top_pad, im.cols, im.rows)) = im;
+        cv::copyMakeBorder(im, te_im, top_pad, bottom_pad, left_pad, right_pad, cv::BORDER_CONSTANT, 0.f);
+        im_path_original = te_im(cv::Rect(context_xmin, context_ymin, context_xmax - context_xmin + 1, context_ymax - context_ymin + 1));
     }
-
-   
-
-    cv::Mat im_patch;
-    if (model_sz != int(original_sz))
-        //original_size resize to (288, 288)
-        cv::resize(im_path_original, im_patch, cv::Size(model_sz, model_sz));
     else
-        im_patch = im_path_original;
+        im_path_original = im(cv::Rect(context_xmin, context_ymin, context_xmax - context_xmin + 1, context_ymax - context_ymin + 1));
 
-    out = im_patch;
+    cv::Mat im_path;
+    cv::resize(im_path_original, im_path, cv::Size(model_sz, model_sz));
 
-    crop_info.crop_cords.resize(4);
-    crop_info.crop_cords[0] = int(context_xmin);
-    crop_info.crop_cords[1] = int(context_xmax);
-    crop_info.crop_cords[2] = int(context_ymin);
-    crop_info.crop_cords[3] = int(context_ymax);
-
-    crop_info.empty_mask = tete_im;
-
-    crop_info.pad_info.resize(4);
-    crop_info.pad_info[0] = top_pad;
-    crop_info.pad_info[1] = left_pad;
-    crop_info.pad_info[3] = rows;
-    crop_info.pad_info[4] = cols;
+    return im_path;
 }
