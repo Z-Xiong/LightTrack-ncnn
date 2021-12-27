@@ -4,7 +4,7 @@ The official implementation by pytorch:
 
 https://github.com/researchmm/LightTrack
 
-# 1. How to buidl and run it?
+# 1. How to build and run it?
 
 ## modify your own CMakeList.txt
 
