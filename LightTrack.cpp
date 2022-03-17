@@ -171,9 +171,9 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point
     ex_backbone.set_light_mode(true);
     ex_backbone.set_num_threads(16);
 
-#if NCNN_VULKAN
-    sd::cout << NCNN_VULKAN << std::endl;
-    ex_backbone.opt.use_vulkan_compute = True;
+#if NCNN_VULKAN and USE_GPU
+    std::cout << NCNN_VULKAN << std::endl;
+    ex_backbone.opt.use_vulkan_compute = true;
 #endif
 
     
