@@ -22,15 +22,21 @@
 #define NCNN_SIMPLESTL 0
 #define NCNN_THREADS 1
 #define NCNN_BENCHMARK 0
+#define NCNN_C_API 1
 #define NCNN_PLATFORM_API 1
 #define NCNN_PIXEL 1
 #define NCNN_PIXEL_ROTATE 1
 #define NCNN_PIXEL_AFFINE 1
 #define NCNN_PIXEL_DRAWING 1
-#define NCNN_VULKAN 0
+#define NCNN_VULKAN 1
 #define NCNN_RUNTIME_CPU 1
-#define NCNN_AVX2 1
 #define NCNN_AVX 1
+#define NCNN_XOP 1
+#define NCNN_FMA 1
+#define NCNN_AVX2 1
+#define NCNN_AVXVNNI 0
+#define NCNN_AVX512 1
+#define NCNN_AVX512VNNI 1
 #define NCNN_ARM82 0
 #define NCNN_ARM82DOT 0
 #define NCNN_MSA 0
@@ -38,8 +44,9 @@
 #define NCNN_RVV 0
 #define NCNN_INT8 1
 #define NCNN_BF16 1
+#define NCNN_FORCE_INLINE 1
 
-#define NCNN_VERSION_STRING "1.0.20211013"
+#define NCNN_VERSION_STRING "1.0.20220216"
 
 #include "ncnn_export.h"
 
@@ -238,6 +245,25 @@ private:
 #endif // NCNN_PLATFORM_API && __ANDROID_API__ >= 8
 #else
 #define NCNN_LOGE(...)
+#endif
+
+
+#if NCNN_FORCE_INLINE
+#ifdef _MSC_VER
+    #define NCNN_FORCEINLINE __forceinline
+#elif defined(__GNUC__)
+    #define NCNN_FORCEINLINE inline __attribute__((__always_inline__))
+#elif defined(__CLANG__)
+    #if __has_attribute(__always_inline__)
+        #define NCNN_FORCEINLINE inline __attribute__((__always_inline__))
+    #else
+        #define NCNN_FORCEINLINE inline
+    #endif
+#else
+    #define NCNN_FORCEINLINE inline
+#endif
+#else
+    #define NCNN_FORCEINLINE inline
 #endif
 
 #endif // NCNN_PLATFORM_H

@@ -19,6 +19,8 @@
 #define WINDOW_INCLUENCE 0.225
 #define PI 3.1415926
 
+#define USE_GPU false
+
 using namespace cv;
 
 class Config
