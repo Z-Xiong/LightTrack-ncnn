@@ -4,9 +4,13 @@ The official implementation by pytorch:
 
 https://github.com/researchmm/LightTrack
 
+# 0. Download vulkan sdk
+https://sdk.lunarg.com/sdk/download/1.3.204.1/linux/vulkansdk-linux-x86_64-1.3.204.1.tar.gz
+
 # 1. How to build and run it?
 
 ## modify your own CMakeList.txt
+modify vulkansdk path as yours
 
 ## build
 ```
