@@ -72,9 +72,9 @@ static std::vector<float> ratio_change_fun(std::vector<float> w, std::vector<flo
 }
 
 
-LightTrack::LightTrack(std::string model_init, std::string model_backbone, std::string model_neck_head)
+LightTrack::LightTrack(std::string model_init, std::string model_update)
 {
-    this->load_model(model_init, model_backbone, model_neck_head);
+    this->load_model(model_init, model_update);
 
 }
 
@@ -125,7 +125,7 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos, cv::Point2f target_sz, 
     // net init
     ncnn::Extractor ex_init = net_init.create_extractor();
     ex_init.set_light_mode(true);
-    ex_init.set_num_threads(16);
+    ex_init.set_num_threads(6);
     ncnn::Mat ncnn_img = ncnn::Mat::from_pixels(z_crop.data, ncnn::Mat::PIXEL_BGR2RGB, z_crop.cols, z_crop.rows);
     ncnn_img.substract_mean_normalize(this->mean_vals, this->norm_vals);
     ex_init.input("input1", ncnn_img);
@@ -167,36 +167,25 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point
 
     time3.start();
     // net backbone
-    ncnn::Extractor ex_backbone = net_backbone.create_extractor();
-    ex_backbone.set_light_mode(true);
-    ex_backbone.set_num_threads(16);
+    ncnn::Extractor ex_update = net_update.create_extractor();
+    ex_update.set_light_mode(true);
+    ex_update.set_num_threads(6);
 
 #if NCNN_VULKAN and USE_GPU
     std::cout << NCNN_VULKAN << std::endl;
-    ex_backbone.opt.use_vulkan_compute = true;
+    ex_update.opt.use_vulkan_compute = true;
 #endif
 
     
-    ex_backbone.input("input1", ncnn_img);
-
-    ex_backbone.extract("output.1", xf);
+    ex_update.input("input1", zf);
+    ex_update.input("input2", ncnn_img);
+    ncnn::Mat cls_score, bbox_pred;
+    ex_update.extract("output.1", cls_score);  // [c, w, h] = [1, 18, 18]
+    ex_update.extract("output.2", bbox_pred); // [c, w, h] = [4, 18, 18]
     time3.stop();
-    time3.show_distance("Update stage ---- output xf extracting cost time");
+    time3.show_distance("Update stage ---- output cls_score and bbox_pred extracting cost time");
 
     time4.start();
-    // net neck head
-    ncnn::Extractor ex_neck_head = net_neck_head.create_extractor();
-    ex_neck_head.set_light_mode(true);
-    ex_neck_head.set_num_threads(16);
-    ex_neck_head.input("input1", zf);
-    ex_neck_head.input("input2", xf);
-    ncnn::Mat cls_score, bbox_pred;
-    ex_neck_head.extract("output.1", cls_score);  // [c, w, h] = [1, 18, 18]
-    ex_neck_head.extract("output.2", bbox_pred); // [c, w, h] = [4, 18, 18]
-    time4.stop();
-    time4.show_distance("Update stage ---- output cls_score and bbox_pred extracting cost time");
-
-    time5.start();
     // manually call sigmoid on the output
     std::vector<float> cls_score_sigmoid;
 
@@ -265,8 +254,8 @@ void LightTrack::update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point
         }
     }
 
-    time5.stop();
-    time5.show_distance("Update stage ---- postprocess cost time");
+    time4.stop();
+    time4.show_distance("Update stage ---- postprocess cost time");
     std::cout << "pscore_window max score is: " << pscore[r_max * cols + c_max] << std::endl;
 
     // to real size
@@ -357,14 +346,12 @@ void LightTrack::track(State &state, cv::Mat im)
     state.target_sz = target_sz;
 }
 
-void LightTrack::load_model(std::string model_init, std::string model_backbone, std::string model_neck_head)
+void LightTrack::load_model(std::string model_init, std::string model_update)
 {
     this->net_init.load_param((model_init+".param").c_str());
     this->net_init.load_model((model_init+".bin").c_str());
-    this->net_backbone.load_param((model_backbone+".param").c_str());
-    this->net_backbone.load_model((model_backbone+".bin").c_str());
-    this->net_neck_head.load_param((model_neck_head+".param").c_str());
-    this->net_neck_head.load_model((model_neck_head+".bin").c_str());
+    this->net_update.load_param((model_update+".param").c_str());
+    this->net_update.load_model((model_update+".bin").c_str());
 }
 
 void LightTrack::grids(Config *p)

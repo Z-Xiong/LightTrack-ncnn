@@ -96,15 +96,15 @@ struct CropInfo {
 
 class LightTrack {
 public:
-    LightTrack(std::string model_init, std::string model_backbone, std::string model_neck_head);
+    LightTrack(std::string model_init, std::string model_update);
     ~LightTrack();
     void init(cv::Mat img, cv::Point target_pos, cv::Point2f target_sz, State &state);
     void update(const cv::Mat &x_crops, cv::Point &target_pos, cv::Point2f &target_sz, std::vector<float> &window, float scale_z, Config *p, float &cls_score_max);
     void track(State &state, cv::Mat im);
-    void load_model(std::string model_init, std::string model_backbone, std::string model_neck_head);
+    void load_model(std::string model_init, std::string model_update);
 
 
-    ncnn::Net net_init, net_backbone, net_neck_head;
+    ncnn::Net net_init, net_update;
     ncnn::Mat zf, xf;
 
     int stride=16;

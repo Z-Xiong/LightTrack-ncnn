@@ -128,11 +128,11 @@ void track(LightTrack *siam_tracker, const char *video_path)
             cv::waitKey(10);
 
             // 相似度大于0.5的情况才进行矩形框标注
-            if (score > 0.3)
-            {
+//            if (score > 0.3)
+//            {
                 // Draw rect.
                 cv::rectangle(frame, rect, cv::Scalar(0, 255, 0));
-            }
+//            }
         }
 
         // Display FPS 
@@ -167,15 +167,14 @@ int main(int argc, char** argv)
 
     // Get model path.
     std::string init_model = "model/lighttrack_init";
-    std::string backbone_model = "model/lighttrack_backbone";
-    std::string neck_head_model = "model/lighttrack_neck_head";
+    std::string update_model = "model/lighttrack_update";
 
     // Get video path.
     const char* video_path = argv[1];
 
     // Build tracker.
     LightTrack *siam_tracker;
-    siam_tracker = new LightTrack(init_model, backbone_model, neck_head_model);
+    siam_tracker = new LightTrack(init_model, update_model);
     track(siam_tracker, video_path);
 
     return 0;
