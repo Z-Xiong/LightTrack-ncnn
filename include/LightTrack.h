@@ -15,19 +15,21 @@
 
 using namespace cv;
 
+typedef struct Bbox {
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+} Bbox;
+
 class LightTrack {
 public:
     LightTrack(const char *model_init, const char *model_update);
 
     ~LightTrack();
 
-    void init(cv::Mat img, cv::Point target_pos_, cv::Point2f target_sz_);
-
-    void update(const cv::Mat &x_crops, float scale_z);
-
-    void track(cv::Mat im);
-
-    void load_model(std::string model_init, std::string model_update);
+    void init(const uint8_t *img, Bbox &box, int im_h , int im_w);
+    void track(const uint8_t *img);
 
     cv::Point target_pos = {0, 0};
     cv::Point2f target_sz = {0.f, 0.f};
@@ -57,6 +59,8 @@ private:
     void grids();
 
     cv::Mat get_subwindow_tracking(cv::Mat im, cv::Point2f pos, int model_sz, int original_sz);
+    void load_model(std::string model_init, std::string model_update);
+    void update(const cv::Mat &x_crops, float scale_z);
 
     std::vector<float> window;
     std::vector<float> grid_to_search_x;

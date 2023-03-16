@@ -74,12 +74,14 @@ LightTrack::~LightTrack() {
 
 }
 
-void LightTrack::init(cv::Mat img, cv::Point target_pos_, cv::Point2f target_sz_) {
-    ori_img_h = img.rows;
-    ori_img_w = img.cols;
+void LightTrack::init(const uint8_t *img, Bbox &box, int im_h , int im_w) {
+    ori_img_h = im_h;
+    ori_img_w = im_w;
 
-    this->target_sz = target_sz_;
-    this->target_pos = target_pos_;
+    this->target_sz.x = box.x1-box.x0;
+    this->target_sz.y = box.y1-box.y0;
+    this->target_pos.x = box.x0 + (box.x1-box.x0)/2;
+    this->target_pos.y = box.y0 + (box.y1-box.y0)/2;
 
     std::cout << "init target pos: " << target_pos << std::endl;
     std::cout << "init target_sz: " << target_sz << std::endl;
@@ -93,10 +95,10 @@ void LightTrack::init(cv::Mat img, cv::Point target_pos_, cv::Point2f target_sz_
     // z_crop size = sqrt((w+2p)*(h+2p))
     float s_z = round(sqrt(wc_z * hc_z));   // orignal size
 
-    cv::Scalar avg_chans = cv::mean(img);
     cv::Mat z_crop;
+    cv::Mat img_(im_h, im_w, CV_8UC3, (void*)img, im_w*3);
 
-    z_crop = get_subwindow_tracking(img, target_pos, exemplar_size, int(s_z));
+    z_crop = get_subwindow_tracking(img_, target_pos, exemplar_size, int(s_z));
 
     // net init
     ncnn::Extractor ex_init = net_init.create_extractor();
@@ -255,7 +257,7 @@ void LightTrack::update(const cv::Mat &x_crops, float scale_z) {
     target_sz.y = target_sz.y * (1 - lr_) + lr_ * res_h;
 }
 
-void LightTrack::track(cv::Mat im) {
+void LightTrack::track(const uint8_t *img) {
     time_checker time1;
 
     float hc_z = target_sz.y + context_amount * (target_sz.x + target_sz.y);
@@ -270,7 +272,8 @@ void LightTrack::track(cv::Mat im) {
 
     time1.start();
     cv::Mat x_crop;
-    x_crop = get_subwindow_tracking(im, target_pos, instance_size, int(s_x));
+    cv::Mat img_(ori_img_h, ori_img_w, CV_8UC3, (void*)img, ori_img_w*3);
+    x_crop = get_subwindow_tracking(img_, target_pos, instance_size, int(s_x));
     time1.stop();
     time1.show_distance("Update stage ---- get subwindow cost time");
 

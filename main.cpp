@@ -80,10 +80,13 @@ void track(LightTrack *siam_tracker, const char *video_path)
     // Initialize tracker with first frame and rect.
     std::cout << "Start track init ..." << std::endl;
     std::cout << "==========================" << std::endl;
-    cv::Point target_pos;
-    target_pos.x = trackWindow.x + trackWindow.width / 2;
-    target_pos.y = trackWindow.y + trackWindow.height / 2;
-    siam_tracker->init(frame, target_pos, cv::Point2f {float(trackWindow.width), float(trackWindow.height)});
+    Bbox box;
+    box.x0 = trackWindow.x;
+    box.x1 = trackWindow.x+trackWindow.width;
+    box.y0 = trackWindow.y;
+    box.y1 = trackWindow.y+trackWindow.height;
+    uint8_t *img = frame.data;
+    siam_tracker->init(img, box, frame.rows, frame.cols);
     std::cout << "==========================" << std::endl;
     std::cout << "Init done!" << std::endl;
     std::cout << std::endl;
@@ -103,7 +106,8 @@ void track(LightTrack *siam_tracker, const char *video_path)
         // Update tracker.
         std::cout << "Start track ..." << std::endl;
         std::cout << "==========================" << std::endl;
-        siam_tracker->track(frame);
+        uint8_t * img_track = frame.data;
+        siam_tracker->track(img_track);
         // Calculate Frames per second (FPS)
         double fps = cv::getTickFrequency() / ((double)cv::getTickCount() - t);
 
