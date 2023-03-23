@@ -80,11 +80,13 @@ void track(LightTrack *siam_tracker, const char *video_path)
     // Initialize tracker with first frame and rect.
     std::cout << "Start track init ..." << std::endl;
     std::cout << "==========================" << std::endl;
-    State state;
-    cv::Point target_pos;
-    target_pos.x = trackWindow.x + trackWindow.width / 2;
-    target_pos.y = trackWindow.y + trackWindow.height / 2;
-    siam_tracker->init(frame, target_pos, cv::Point2f {float(trackWindow.width), float(trackWindow.height)}, state);
+    Bbox box;
+    box.x0 = trackWindow.x;
+    box.x1 = trackWindow.x+trackWindow.width;
+    box.y0 = trackWindow.y;
+    box.y1 = trackWindow.y+trackWindow.height;
+    uint8_t *img = frame.data;
+    siam_tracker->init(img, box, frame.rows, frame.cols);
     std::cout << "==========================" << std::endl;
     std::cout << "Init done!" << std::endl;
     std::cout << std::endl;
@@ -104,13 +106,14 @@ void track(LightTrack *siam_tracker, const char *video_path)
         // Update tracker.
         std::cout << "Start track ..." << std::endl;
         std::cout << "==========================" << std::endl;
-        siam_tracker->track(state, frame);
+        uint8_t * img_track = frame.data;
+        siam_tracker->track(img_track);
         // Calculate Frames per second (FPS)
         double fps = cv::getTickFrequency() / ((double)cv::getTickCount() - t);
 
         // Result to rect.
         cv::Rect rect;
-        cxy_wh_2_rect(state.target_pos, state.target_sz, rect);
+        cxy_wh_2_rect(siam_tracker->target_pos, siam_tracker->target_sz, rect);
 
         // Boundary judgment.
         cv::Mat track_window;
@@ -174,7 +177,7 @@ int main(int argc, char** argv)
 
     // Build tracker.
     LightTrack *siam_tracker;
-    siam_tracker = new LightTrack(init_model, update_model);
+    siam_tracker = new LightTrack(init_model.c_str(), update_model.c_str());
     track(siam_tracker, video_path);
 
     return 0;
