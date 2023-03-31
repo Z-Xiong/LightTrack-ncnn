@@ -24,18 +24,18 @@ static float sz_whFun(cv::Point2f wh) {
 }
 
 static std::vector<float> sz_change_fun(std::vector<float> w, std::vector<float> h, float sz) {
-    int rows = int(std::sqrt(w.size()));
+    int rows = int(std::sqrt(h.size()));
     int cols = int(std::sqrt(w.size()));
     std::vector<float> pad(rows * cols, 0);
     std::vector<float> sz2;
-    for (int i = 0; i < cols; i++) {
-        for (int j = 0; j < rows; j++) {
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
             pad[i * cols + j] = (w[i * cols + j] + h[i * cols + j]) * 0.5f;
         }
     }
-    for (int i = 0; i < cols; i++) {
-        for (int j = 0; j < rows; j++) {
-            float t = std::sqrt((w[i * rows + j] + pad[i * rows + j]) * (h[i * rows + j] + pad[i * rows + j])) / sz;
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            float t = std::sqrt((w[i * cols + j] + pad[i * cols + j]) * (h[i * cols + j] + pad[i * cols + j])) / sz;
 
             sz2.push_back(std::max(t, (float) 1.0 / t));
         }
@@ -46,7 +46,7 @@ static std::vector<float> sz_change_fun(std::vector<float> w, std::vector<float>
 }
 
 static std::vector<float> ratio_change_fun(std::vector<float> w, std::vector<float> h, cv::Point2f target_sz) {
-    int rows = int(std::sqrt(w.size()));
+    int rows = int(std::sqrt(h.size()));
     int cols = int(std::sqrt(w.size()));
     float ratio = target_sz.x / target_sz.y;
     std::vector<float> sz2;
@@ -188,7 +188,7 @@ void LightTrack::update(const cv::Mat &x_crops, float scale_z) {
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             w[i * cols + j] = pred_x2[i * cols + j] - pred_x1[i * cols + j];
-            h[i * rows + j] = pred_y2[i * rows + j] - pred_y1[i * cols + j];
+            h[i * cols + j] = pred_y2[i * cols + j] - pred_y1[i * cols + j];
         }
     }
 
