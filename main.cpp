@@ -1,6 +1,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <string>
+#include <algorithm>
 #include "opencv2/opencv.hpp"
 
 #include "LightTrack.h"
@@ -27,8 +28,8 @@ double compareHist(cv::Mat src_origin_1, cv::Mat src_origin_2)
   int histSize[] = { h_bins, s_bins };
 
   // hue的取值范围从0到256, saturation取值范围从0到180
-  float h_ranges[] = { 0, 256 };
-  float s_ranges[] = { 0, 180 };
+  float h_ranges[] = { 0, 180 };
+  float s_ranges[] = { 0, 256 };
 
   const float* ranges[] = { h_ranges, s_ranges };
   // 使用第0和第1通道
@@ -37,10 +38,10 @@ double compareHist(cv::Mat src_origin_1, cv::Mat src_origin_2)
  // 直方图
   cv::MatND src_1_hist,src_2_hist;
  // 计算HSV图像的直方图
-  cv::calcHist( &src_1 , 1, channels, Mat(), src_1_hist, 2, histSize, ranges, true, false );
-  cv::normalize( src_1_hist, src_1_hist, 0, 1, cv::NORM_MINMAX, -1, Mat() );
-  cv::calcHist( &src_2 , 1, channels, Mat(), src_2_hist, 2, histSize, ranges, true, false );
-  cv::normalize( src_2_hist, src_2_hist, 0, 1, cv::NORM_MINMAX, -1, Mat() );
+  cv::calcHist( &src_1 , 1, channels, cv::Mat(), src_1_hist, 2, histSize, ranges, true, false );
+  cv::normalize( src_1_hist, src_1_hist, 0, 1, cv::NORM_MINMAX, -1, cv::Mat() );
+  cv::calcHist( &src_2 , 1, channels, cv::Mat(), src_2_hist, 2, histSize, ranges, true, false );
+  cv::normalize( src_2_hist, src_2_hist, 0, 1, cv::NORM_MINMAX, -1, cv::Mat() );
 
   //对比方法
  double result = cv::compareHist( src_1_hist, src_2_hist, 0 );
@@ -126,9 +127,7 @@ void track(LightTrack *siam_tracker, const char *video_path)
 
             // 显示初始框和跟踪框
             cv::imshow("init_window", init_window);
-            cv::waitKey(10);
             cv::imshow("track_window", track_window);
-            cv::waitKey(10);
 
             // 相似度大于0.5的情况才进行矩形框标注
 //            if (score > 0.3)
@@ -147,7 +146,6 @@ void track(LightTrack *siam_tracker, const char *video_path)
 
         // Display result.
         cv::imshow("demo", frame);
-        cv::waitKey(33);
 
         // Exit if 'q' pressed.
         if (cv::waitKey(30) == 'q')
@@ -179,6 +177,9 @@ int main(int argc, char** argv)
     LightTrack *siam_tracker;
     siam_tracker = new LightTrack(init_model.c_str(), update_model.c_str());
     track(siam_tracker, video_path);
+
+    // Clean up memory
+    delete siam_tracker;
 
     return 0;
 }

@@ -282,10 +282,10 @@ void LightTrack::track(const uint8_t *img) {
     target_sz.y = target_sz.y * scale_z;
 
     this->update(x_crop, scale_z);
-    target_pos.x = std::max(0, min(ori_img_w, target_pos.x));
-    target_pos.y = std::max(0, min(ori_img_h, target_pos.y));
-    target_sz.x = float(std::max(10, min(ori_img_w, int(target_sz.x))));
-    target_sz.y = float(std::max(10, min(ori_img_h, int(target_sz.y))));
+    target_pos.x = std::max(0, std::min(ori_img_w, target_pos.x));
+    target_pos.y = std::max(0, std::min(ori_img_h, target_pos.y));
+    target_sz.x = float(std::max(10, std::min(ori_img_w, int(target_sz.x))));
+    target_sz.y = float(std::max(10, std::min(ori_img_h, int(target_sz.y))));
 
     std::cout << "track target pos: " << target_pos << std::endl;
     std::cout << "track target_sz: " << target_sz << std::endl;
